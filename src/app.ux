@@ -1,0 +1,7 @@
+<script>
+export default {
+  onCreate(){console.info('[QT 0.2.0] create');},
+  onHide(){console.info('[QT 0.2.0] hide');},
+  onError(e){console.error('[QT 0.2.0] error '+String(e&&e.message||'unknown').slice(0,160));}
+};
+</script>

@@ -1,0 +1,14 @@
+{
+  "name": "codex-band-quick-todo",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "build": "node tools/build.cjs",
+    "verify:package": "python tools/inspect_package.py"
+  },
+  "devDependencies": {
+    "aiot-toolkit": "2.0.5",
+    "@aiot-toolkit/jsc": "1.0.10"
+  }
+}

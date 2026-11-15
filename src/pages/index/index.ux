@@ -1,0 +1,123 @@
+<template>
+  <div class="page">
+    <text class="title">快速待办 · {{ count }}件</text>
+    <scroll id="field" class="field" scroll-x="true" scroll-y="true" bounces="false" scroll-left="332" scroll-top="320" onscroll="scrolled" ontouchstart="begin" ontouchmove="drag" ontouchend="end" ontouchcancel="cancel">
+      <stack class="plane">
+        <image for="circles" tid="id" class="bubble" style="{{ $item.style }}" src="{{ $item.src }}" onclick="tap($item.id)" />
+      </stack>
+    </scroll>
+    <text class="focus">{{ focused }}</text>
+    <text class="status">{{ status }}</text>
+    <div class="actions">
+      <text class="history" onclick="toggleHistory">{{ history ? '返回图标' : '操作日志' }}</text>
+      <text class="exit" onclick="exit">退出</text>
+    </div>
+    <div class="log" if="{{ history }}"><text class="logrow" for="rows">{{ $item }}</text></div>
+  </div>
+</template>
+<script>
+import systemStorage from '@system.storage';
+import systemApp from '@system.app';
+import core from '../../common/core';
+import catalog from '../../common/items';
+import layout from '../../common/scroll-layout';
+let journal=null,loading=null,pending=null,alive=false,visible=false,generation=0;
+let gesture=null,scrollX=332,scrollY=320,lastScroll=0,idle=null,domReady=false;
+const storage={get(key){return new Promise((resolve,reject)=>systemStorage.get({key,default:'',success:resolve,fail:()=>reject(Error('READ'))}));},set(key,value){return new Promise((resolve,reject)=>systemStorage.set({key,value,success:resolve,fail:()=>reject(Error('WRITE'))}));}};
+function stopIdle(){if(idle!==null){clearTimeout(idle);idle=null;}}
+function point(e){const t=e&&(e.touches&&e.touches[0]||e.changedTouches&&e.changedTouches[0]);return t&&Number.isFinite(t.clientX)&&Number.isFinite(t.clientY)?t:null;}
+export default {
+  private:{count:0,circles:[],rows:[],history:false,status:'正在读取本地记录',focused:'Codex',ready:false},
+  onInit(){
+    const current=++generation;alive=true;visible=true;domReady=false;gesture=null;stopIdle();scrollX=332;scrollY=320;
+    this.circles=layout.circles(catalog.items);
+    if(!journal){journal=core.create(storage,catalog.items);loading=journal.load();}
+    Promise.all([loading,pending?pending.catch(()=>null):null]).then(()=>{
+      if(!alive||current!==generation)return;
+      this.refresh();this.status=this.ready?'滑动寻找 · 轻点激活':'只读保护：存储异常或日志已满';
+    }).catch(()=>{if(alive&&current===generation){this.ready=false;this.status='读取失败，保留原数据';}});
+  },
+  onReady(){
+    domReady=true;this.restorePosition();
+    try{this.$element('field').getScrollRect({success(r){console.info('[QT 0.2.0] content '+r.width+'x'+r.height);}});}catch(e){console.info('[QT 0.2.0] content size unavailable');}
+  },
+  onShow(){visible=true;if(domReady)this.restorePosition();if(journal)this.refresh();},
+  onHide(){visible=false;gesture=null;stopIdle();},
+  onDestroy(){visible=false;alive=false;domReady=false;generation++;gesture=null;stopIdle();},
+  onBackPress(){
+    console.info('[QT 0.2.0] back consumed');
+    // Consume system swipe-back while browsing the two-dimensional field.
+    if(this.history)this.history=false;
+    gesture={down:false,moved:true};this.queueSnap();return true;
+  },
+  restorePosition(){
+    if(!domReady||!visible)return;
+    try{this.$element('field').scrollTo({left:scrollX,top:scrollY,behavior:'instant'});}
+    catch(e){this.status='滚动初始化失败，请退出重开';console.error('[QT 0.2.0] scroll init failed');}
+  },
+  refresh(){
+    const active=journal?journal.active():{};
+    // Fixed IDs, positions and array; only committed image state changes.
+    this.circles.forEach(c=>{const src=layout.image(c.id,!!active[c.id]);if(c.src!==src)c.src=src;});
+    this.count=Object.keys(active).filter(k=>active[k]).length;
+    this.ready=!!journal&&journal.writable()&&!pending;
+    if(this.history)this.refreshRows();
+  },
+  refreshRows(){
+    const snapshot=journal&&journal.view();
+    this.rows=snapshot?snapshot.events.slice(-5).reverse().map(e=>{const item=catalog.items.find(p=>p.id===e.item),d=new Date(e.time+e.offset*60000),pad=n=>n<10?'0'+n:''+n;return pad(d.getUTCHours())+':'+pad(d.getUTCMinutes())+' '+item.name+(e.active?' 开启':' 取消');}):[];
+  },
+  begin(e){
+    if(!visible||this.history)return;
+    stopIdle();const p=point(e);
+    gesture={x:p?p.clientX:0,y:p?p.clientY:0,hasPoint:!!p,moved:false,down:true};
+  },
+  drag(e){
+    const p=point(e);
+    if(gesture&&p&&gesture.hasPoint&&Math.hypot(p.clientX-gesture.x,p.clientY-gesture.y)>9)gesture.moved=true;
+    // Native scrolling owns movement: no reactive writes here.
+  },
+  end(e){if(!visible)return;this.drag(e);if(gesture)gesture.down=false;this.queueSnap();},
+  cancel(){if(gesture){gesture.down=false;gesture.moved=true;}this.queueSnap();},
+  scrolled(e){
+    if(!visible||!e||!Number.isFinite(e.scrollX)||!Number.isFinite(e.scrollY))return;
+    if(gesture&&gesture.down&&Math.hypot(e.scrollX-scrollX,e.scrollY-scrollY)>1)gesture.moved=true;
+    scrollX=e.scrollX;scrollY=e.scrollY;lastScroll=Date.now();
+    if(!gesture||!gesture.down)this.queueSnap();
+  },
+  queueSnap(){
+    if(idle!==null||!visible||!domReady||this.history||gesture&&gesture.down)return;
+    const current=generation;
+    idle=setTimeout(()=>{idle=null;if(!alive||!visible||current!==generation)return;if(Date.now()-lastScroll<180){this.queueSnap();return;}this.snap();},200);
+  },
+  snap(){
+    if(!visible||this.history||gesture&&gesture.down)return;
+    const target=layout.nearest(catalog.items,scrollX,scrollY);
+    this.focused=target.item.name;
+    if(Math.hypot(target.left-scrollX,target.top-scrollY)<1)return;
+    scrollX=target.left;scrollY=target.top;this.restorePosition();
+  },
+  tap(id){
+    if(gesture&&gesture.moved)return;
+    if(!visible||!this.ready||pending||this.history)return;
+    const current=generation;this.ready=false;this.status='保存中…';
+    pending=journal.toggle(id).then(()=>{if(alive&&current===generation){this.status='已存手环 · 尚未传输';this.focused=catalog.items.find(x=>x.id===id).name;}}).catch(()=>{if(alive&&current===generation)this.status='保存未确认，保留记录并停止写入';}).then(()=>{pending=null;if(alive&&current===generation)this.refresh();});
+  },
+  toggleHistory(){stopIdle();this.history=!this.history;gesture=null;if(this.history)this.refreshRows();},
+  exit(){if(pending){this.status='正在保存，请稍后退出';return;}stopIdle();systemApp.terminate();}
+};
+</script>
+<style>
+.page { width:336px;height:480px;flex-direction:column;background-color:#090c0b;align-items:center; }
+.title { height:38px;font-size:18px;color:#eeeeee;text-align:center; }
+.field { width:336px;height:360px; }
+.plane { width:1000px;height:1000px; }
+.bubble { position:absolute;object-fit:contain; }
+.focus { height:23px;font-size:16px;color:#ffffff;text-align:center; }
+.status { height:24px;font-size:13px;color:#bdbdbd;text-align:center; }
+.actions { width:300px;height:32px;justify-content:space-between;align-items:center; }
+.history { width:196px;height:32px;font-size:15px;color:#cccccc;text-align:center; }
+.exit { width:88px;height:32px;font-size:15px;color:#cccccc;text-align:center; }
+.log { position:absolute;left:12px;top:55px;width:312px;height:320px;background-color:#101010;flex-direction:column;justify-content:center; }
+.logrow { width:300px;height:48px;font-size:17px;color:#ffffff; }
+</style>

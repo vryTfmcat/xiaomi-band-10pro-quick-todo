@@ -1,0 +1,9 @@
+node_modules/
+sign/
+dist/
+build/
+cache/
+prototype/index.html
+prototype/verify.html
+prototype/check-script.cjs
+*.log

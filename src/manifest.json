@@ -1,0 +1,34 @@
+{
+  "package": "com.local.codex.quicktodo",
+  "name": "圆圈待办",
+  "icon": "/common/icon.png",
+  "versionName": "0.2.0",
+  "versionCode": 5,
+  "minPlatformVersion": 1100,
+  "deviceTypeList": [
+    "watch"
+  ],
+  "features": [
+    {
+      "name": "system.storage"
+    },
+    {
+      "name": "system.app"
+    }
+  ],
+  "config": {
+    "designWidth": 336,
+    "logLevel": "info"
+  },
+  "router": {
+    "entry": "pages/index",
+    "pages": {
+      "pages/index": {
+        "component": "index"
+      }
+    }
+  },
+  "display": {
+    "backgroundColor": "#090c0b"
+  }
+}
